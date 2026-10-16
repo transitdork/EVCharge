@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Zappi Charge Planner</title>
+<!-- Bump this number every time you upload a new version. Installed copies check it and refresh themselves. -->
+<meta name="app-version" content="1.1.0">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Charge Plan">
@@ -107,6 +109,8 @@ details[open] summary::after{content:"–"}
 select,.row input[type=number]{font:inherit;font-size:16px;color:var(--fg);background:var(--surface-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;width:120px;text-align:right}
 select{width:auto;max-width:60%;text-align:left}
 .foot{font-size:12px;color:var(--muted);line-height:1.5}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);font-size:14px;font-weight:500;padding:10px 16px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.25);z-index:20;white-space:nowrap}
+.version{font-size:12px;color:var(--muted);text-align:center}
 @media (prefers-reduced-motion: no-preference){.battery .add,.battery .now,.battery .tick{transition:left .25s,width .25s}}
 </style>
 </head>
@@ -201,7 +205,9 @@ select{width:auto;max-width:60%;text-align:left}
       <p class="foot">The Zappi counts energy at the wall, so the Smart Boost figure includes charging losses (about 10% for AC). The Sealion 7 Premium and Performance share the same 82.5 kWh usable Blade LFP pack. The car's 11 kW on-board charger isn't the limit here; your 7 kW Zappi is. If the car finishes a few percent off, nudge efficiency up or down to calibrate.</p>
     </div>
   </details>
+  <p class="version num" id="versionLine"></p>
 </div>
+<div class="toast" id="toast" role="status" hidden></div>
 
 <script>
 const CARS = {
@@ -391,6 +397,39 @@ numIn("cap", "cap", 10, 200); numIn("kw", "kw", 1.4, 22); numIn("eff", "eff", 70
 
 render();
 setInterval(() => { const r = calc(); if (r.delta > 0) $("outFinish").textContent = `Done by ${fmtClock(new Date(Date.now() + r.hours * 3.6e6))} if started now`; }, 30000);
+/* Auto-update: compare this page's version with the one on the server */
+const APP_VERSION = document.querySelector('meta[name="app-version"]')?.content || "0";
+$("versionLine").textContent = "Version " + APP_VERSION;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.hidden = false;
+  clearTimeout(toast.t); toast.t = setTimeout(() => { t.hidden = true; }, 3000);
+}
+try {
+  const just = sessionStorage.getItem("zappi-updated-to");
+  if (just === APP_VERSION) { sessionStorage.removeItem("zappi-updated-to"); toast("Updated to version " + APP_VERSION); }
+} catch (e) {}
+let checking = false;
+async function checkForUpdate() {
+  if (checking || !navigator.onLine || location.protocol === "file:") return;
+  checking = true;
+  try {
+    const url = location.pathname + "?check=" + Date.now();   // query string skips GitHub's 10-minute CDN cache
+    const res = await fetch(url, { cache: "no-store" });
+    if (!res.ok) return;
+    const html = await res.text();
+    const m = html.match(/<meta name="app-version" content="([^"]+)"/);
+    const latest = m && m[1];
+    if (!latest || latest === APP_VERSION) return;
+    let tried = null; try { tried = sessionStorage.getItem("zappi-tried"); } catch (e) {}
+    if (tried === latest) return;                               // already reloaded once for this version
+    try { sessionStorage.setItem("zappi-tried", latest); sessionStorage.setItem("zappi-updated-to", latest); } catch (e) {}
+    location.replace(location.pathname + "?v=" + encodeURIComponent(latest));
+  } catch (e) {
+  } finally { checking = false; }
+}
+checkForUpdate();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkForUpdate(); });
+window.addEventListener("pageshow", e => { if (e.persisted) checkForUpdate(); });
 </script>
 </body>
 </html>
